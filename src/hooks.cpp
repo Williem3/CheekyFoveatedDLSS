@@ -1487,6 +1487,7 @@ void note_d3d12_command_list_submission_impl(
     ID3D12GraphicsCommandList* const command_list
 ) noexcept {
     if (queue == nullptr || command_list == nullptr) return;
+    note_peripheral_dlaa_command_list_submission(queue, command_list);
     std::uint64_t frequency{};
     if (FAILED(queue->GetTimestampFrequency(&frequency)) || frequency == 0U) return;
     std::lock_guard lock(d3d12_nr_timing_mutex);

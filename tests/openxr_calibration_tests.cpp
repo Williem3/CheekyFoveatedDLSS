@@ -1941,7 +1941,83 @@ void libovr_alternating_commits() {
     cleanup();
     std::cout << "PASS LibOVR legacy AER: alternating eye commits paired across frames\n";
 }
+// xrEndFrame enters the calibration bridge holding the layer's state lock. A
+// bridge call back into a layer export that takes the lock again (the quad
+// lookup, CheekyQuad_GetViewsV1) made MSVC's std::mutex throw
+// resource_deadlock_would_occur; the export caught it, once per frame, and every
+// first-chance exception logger in the host recorded it. Count C++ exceptions.
+DWORD cxx_exception_thread{};
+unsigned cxx_exceptions{};
+LONG CALLBACK count_cxx_exception(EXCEPTION_POINTERS* info) {
+    if (info->ExceptionRecord->ExceptionCode == 0xE06D7363 && GetCurrentThreadId() == cxx_exception_thread)
+        ++cxx_exceptions;
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+void end_frame_without_exceptions(unsigned api) {
+    roles();
+    ComPtr<ID3D11Device> device11;
+    ComPtr<ID3D11Texture2D> image11;
+    std::unique_ptr<GPU12> gpu;
+    ComPtr<ID3D12Resource> image12;
+    XrGraphicsBindingD3D11KHR binding11{XR_TYPE_GRAPHICS_BINDING_D3D11_KHR};
+    XrGraphicsBindingD3D12KHR binding12{XR_TYPE_GRAPHICS_BINDING_D3D12_KHR};
+    void* image{};
+    void* binding{};
+    if (api == 11) {
+        check(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                &device11, nullptr, nullptr));
+        D3D11_TEXTURE2D_DESC desc{128, 128, 1, 2, DXGI_FORMAT_R8G8B8A8_UNORM, {1, 0}, D3D11_USAGE_DEFAULT,
+                                  0,   0,   0};
+        check(device11->CreateTexture2D(&desc, nullptr, &image11));
+        binding11.device = device11.Get();
+        image = image11.Get();
+        binding = &binding11;
+    } else {
+        gpu = std::make_unique<GPU12>();
+        image12 = gpu->texture(128, 2, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        binding12.device = gpu->device.Get();
+        binding12.queue = gpu->submit_queue.Get();
+        image = image12.Get();
+        binding = &binding12;
+    }
+    unsigned counted{};
+    {
+        XRLayer layer(image, api, binding);
+        struct Counter {
+            PVOID handler;
+            Counter() : handler(AddVectoredExceptionHandler(1, count_cxx_exception)) {
+                cxx_exception_thread = GetCurrentThreadId();
+                cxx_exceptions = 0;
+            }
+            ~Counter() { RemoveVectoredExceptionHandler(handler); }
+        } counter;
+        for (unsigned frame = 0; frame < 8; ++frame) {
+            layer.begin();
+            layer.release();
+            layer.end(false);
+        }
+        counted = cxx_exceptions;
+    }
+    cleanup();
+    if (counted) std::cerr << "  " << counted << " C++ exception(s) over 8 D3D" << api << " xrEndFrames\n";
+    require(counted == 0, api == 11 ? "D3D11 xrEndFrame raised C++ exceptions: the calibration bridge re-entered the layer's state lock"
+                                    : "D3D12 xrEndFrame raised C++ exceptions: the calibration bridge re-entered the layer's state lock");
+    std::cout << "PASS OpenXR D3D" << api << " xrEndFrame: the calibration bridge raises no C++ exceptions\n";
+}
 } // namespace
+int run_openxr_reentry_tests() {
+    int failures{};
+    for (unsigned api : {11U, 12U}) {
+        try {
+            end_frame_without_exceptions(api);
+        } catch (const std::exception& e) {
+            cleanup();
+            std::cerr << "OpenXR calibration bridge re-entry: " << e.what() << '\n';
+            ++failures;
+        }
+    }
+    return failures;
+}
 int run_libovr_alternating_calibration_tests() {
     try { libovr_alternating_commits(); return 0; }
     catch (const std::exception& e) {

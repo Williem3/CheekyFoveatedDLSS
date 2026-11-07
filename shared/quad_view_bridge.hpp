@@ -46,10 +46,16 @@ inline CheekyGazeSnapshotV1 quad_app_frame() noexcept {
 inline bool quad_is_app_snapshot(const CheekyQuadViewsV1& value) noexcept {
     return (value.session_generation&(uint64_t(1)<<63))!=0;
 }
+// The application-composited half of quad_view_snapshot(). It calls no layer
+// export that takes the layer's state lock (the gaze snapshot is lock-free), so
+// it is safe where the layer calls in holding that lock.
+inline CheekyQuadViewsV1 quad_app_view_snapshot() noexcept {
+    const auto frame=quad_app_frame();
+    return app_quad_views().snapshot(frame.session_generation,uint64_t(frame.predicted_display_time),GetTickCount64());
+}
 inline CheekyQuadViewsV1 quad_view_snapshot() noexcept {
     auto layer=quad_layer_view_snapshot();if(layer.active){app_quad_views().snapshot(0,0,GetTickCount64());return layer;}
-    const auto frame=quad_app_frame();
-    auto app=app_quad_views().snapshot(frame.session_generation,uint64_t(frame.predicted_display_time),GetTickCount64());
+    auto app=quad_app_view_snapshot();
     return app.active?app:layer;
 }
 inline void quad_view_observe12(uint64_t id,uint64_t generation,unsigned width,unsigned height) noexcept {

@@ -1413,9 +1413,9 @@ void eye_calibration_reset_stats() noexcept {
     s.placement_locks = s.placement_losses = s.wide_searches = 0;
     s.measurement_start = s.sequence + 1;
 }
-bool eye_calibration_frame(EyeCalibrationBackend backend, std::uint64_t session_generation,
-                           unsigned graphics_api) noexcept {
-    if(quad_view_snapshot().active)return false;
+// eye_calibration_frame without its quad-view check; the OpenXR bridge makes its own.
+static bool calibration_frame(EyeCalibrationBackend backend, std::uint64_t session_generation,
+                              unsigned graphics_api) noexcept {
     auto& s = state();
     std::lock_guard lock(s.mutex);
     const auto now = GetTickCount64();
@@ -1547,6 +1547,10 @@ bool eye_calibration_frame(EyeCalibrationBackend backend, std::uint64_t session_
     }
     ++s.stats.skipped; // No blocking or overwriting unfinished GPU readbacks.
     return false;
+}
+bool eye_calibration_frame(EyeCalibrationBackend backend, std::uint64_t session_generation,
+                           unsigned graphics_api) noexcept {
+    return !quad_view_snapshot().active && calibration_frame(backend, session_generation, graphics_api);
 }
 void eye_calibration_tick() noexcept {
     if (!pending)
@@ -2408,7 +2412,12 @@ CheekyEyeCalibration_GetBridge(CheekyEyeCalibrationBridgeV1* api) noexcept {
     if (!api || api->version != 1 || api->size != sizeof(*api))
         return false;
     api->begin = [](std::uint64_t generation, std::uint32_t graphics) noexcept {
-        return eye_calibration_frame(EyeCalibrationBackend::openxr, generation, graphics);
+        // The layer calls this from xrEndFrame holding its state lock, and only for
+        // sessions without its own quad capture (those end in quad_capture_end first).
+        // Its quad export takes that lock again, which made std::mutex throw once per
+        // frame; ask only the application-side registry here.
+        return !quad_app_view_snapshot().active &&
+               calibration_frame(EyeCalibrationBackend::openxr, generation, graphics);
     };
     api->capture = [](std::uint64_t generation, void* texture, void* queue, std::uint32_t graphics,
                       std::uint32_t eye, std::uint32_t slice, float u0, float v0, float u1,

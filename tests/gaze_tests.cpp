@@ -1829,6 +1829,7 @@ int run_stereo_support_tests();
 int run_stereo_support12_tests();
 int run_mixed_api_calibration_tests();
 int run_openxr_calibration_tests();
+int run_openxr_reentry_tests();
 int run_openxr_input_tests();
 int run_support_summary_tests();
 int run_nr_processing_tests();
@@ -2959,6 +2960,7 @@ int main(int argc, char** argv) {
         return supported ? 0 : 1;
     }
     if (argc == 2 && std::strcmp(argv[1], "--nr-lifetime") == 0) return run_nr_lifetime_tests();
+    if (argc == 2 && std::strcmp(argv[1], "--openxr-reentry") == 0) return run_openxr_reentry_tests();
     if (argc == 2 && std::strcmp(argv[1], "--nr-processing") == 0) {
         return run_nr_processing_tests();
     }
@@ -3034,6 +3036,7 @@ int main(int argc, char** argv) {
     failures += run_mixed_api_calibration_tests();
     failures += run_openxr_input_tests();
     failures += run_openxr_calibration_tests();
+    failures += run_openxr_reentry_tests();
     failures += run_openxr_calibration_format_tests();
     failures += run_nr_processing_tests();
     test_afw_dispatch_and_settings();

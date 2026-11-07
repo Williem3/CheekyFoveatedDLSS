@@ -159,6 +159,12 @@ still needed with IL-2, VDXR and Galaxy XR, including focus loss/recovery and
 VR/session restart. The startup log records IL-2 compatibility admission; input
 diagnostics record the actual fallback attach/sync calls and results.
 
+`CheekyTests --openxr-reentry` runs D3D11 and D3D12 frames through the actual
+OpenXR layer DLL and fails on any C++ exception raised during them. The layer
+enters the eye-calibration bridge from xrEndFrame holding its state lock, so the
+bridge must not call layer exports that take that lock (a quad lookup there threw
+and was caught once per frame).
+
 `CheekyTests --libovr-policy` checks mixed OpenVR/LibOVR gaze selection,
 invalid PVR samples and calibration ownership across OpenVR, OpenXR and LibOVR.
 `CheekyTests --libovr-transfer` checks retained calibration with both D3D11
